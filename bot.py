@@ -18,40 +18,46 @@ WELCOME = (
 )
 
 
+COUNTRIES = [
+    ("RUB", "🇷🇺", "₽",   lambda d: round(d["RUB"] + 1.2, 2), 13.2),
+    ("KZT", "🇰🇿", "₸",   lambda d: round(d["KZT"] + 8, 1),  555.0),
+    ("BYN", "🇧🇾", "Br",  lambda d: round(d["BYN"], 3),       0.041),
+    ("UZS", "🇺🇿", "сум", lambda d: round(d["UZS"], 0),       1645.0),
+    ("TJS", "🇹🇯", "с.",  lambda d: round(d["TJS"] + 0.2, 2), 1.08),
+    ("AMD", "🇦🇲", "֏",   lambda d: round(d["AMD"], 1),       490.0),
+    ("GEL", "🇬🇪", "₾",   lambda d: round(d["GEL"], 3),       0.37),
+    ("AZN", "🇦🇿", "₼",   lambda d: round(d["AZN"], 3),       0.19),
+]
+
+
 async def get_rates() -> dict:
     try:
         async with httpx.AsyncClient() as c:
             r = await c.get("https://open.er-api.com/v6/latest/CNY", timeout=6)
             d = r.json()["rates"]
-            return {
-                "RUB": round(d["RUB"] + 1.2, 2),
-                "KZT": round(d["KZT"] + 8, 1),
-                "BYN": round(d["BYN"], 3),
-                "UZS": round(d["UZS"], 0),
-                "TJS": round(d["TJS"] + 0.2, 2),
-                "AMD": round(d["AMD"], 1),
-            }
+            return {key: fn(d) for key, flag, sym, fn, _ in COUNTRIES}
     except Exception:
-        return {"RUB": 13.2, "KZT": 555.0, "BYN": 0.041, "UZS": 1645.0, "TJS": 1.08, "AMD": 4.9}
+        return {key: fallback for key, flag, sym, fn, fallback in COUNTRIES}
 
 
 async def calc_reply(update: Update, cny: float):
     rates = await get_rates()
     m = MARKUP
 
-    rub = int(cny * rates["RUB"] * m)
-    kzt = int(cny * rates["KZT"] * m)
-    byn = round(cny * rates["BYN"] * m, 2)
-    uzs = int(cny * rates["UZS"] * m)
+    lines = []
+    for key, flag, sym, _, _ in COUNTRIES:
+        val = cny * rates[key] * m
+        if val >= 100:
+            formatted = f"{int(val):,}"
+        else:
+            formatted = f"{val:.2f}".rstrip("0").rstrip(".")
+        lines.append(f"{flag}  {formatted} {sym}")
 
     text = (
         f"🧮 <b>{int(cny)} ¥</b>\n"
         f"─────────────────\n"
-        f"🇷🇺  {rub:,} ₽\n"
-        f"🇰🇿  {kzt:,} ₸\n"
-        f"🇧🇾  {byn} Br\n"
-        f"🇺🇿  {uzs:,} сум\n"
-        f"─────────────────\n"
+        + "\n".join(lines) +
+        f"\n─────────────────\n"
         f"Хочешь заказать? 👇"
     )
 
