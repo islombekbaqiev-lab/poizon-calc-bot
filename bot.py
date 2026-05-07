@@ -282,6 +282,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "cart_view":
         await show_cart(q, context)
 
+    elif data.startswith("cart_del:"):
+        idx  = int(data.split(":")[1])
+        cart = get_cart(context)
+        if 0 <= idx < len(cart):
+            cart.pop(idx)
+        await show_cart(q, context)
+
     elif data == "cart_clear":
         context.user_data["cart"] = []
         await q.edit_message_text("🗑 Корзина очищена.\n\nНапиши цену в юанях чтобы начать.")
@@ -359,34 +366,35 @@ async def show_cart(q, context):
     if not cart:
         await q.edit_message_text(
             "🛒 Корзина пуста.\n\nНапиши цену в юанях чтобы добавить товар.",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("📩 Заказать", url=TG_LINK)
-            ]])
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📩 Заказать", url=TG_LINK)]])
         )
         return
 
-    lines     = []
-    total_cny = 0
-    for i, item in enumerate(cart, 1):
-        cny       = item["cny"]
-        total_cny += cny
-        lines.append(f"{i}. {int(cny)} ¥ = {fmt(cny * rate)} {c['sym']}")
-
+    total_cny = sum(i["cny"] for i in cart)
     text = (
         f"🛒 <b>Корзина</b> ({c['flag']} {c['name']})\n"
         f"─────────────────\n"
-        + "\n".join(lines) +
+        + "\n".join(
+            f"{i+1}. {int(it['cny'])} ¥ = {fmt(it['cny'] * rate * MARKUP)} {c['sym']}"
+            for i, it in enumerate(cart)
+        ) +
         f"\n─────────────────\n"
-        f"💰 <b>Итого: {fmt(total_cny * rate)} {c['sym']}</b>"
+        f"💰 <b>Итого: {fmt(total_cny * rate * MARKUP)} {c['sym']}</b>"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📦 Рассчитать доставку", callback_data="cart_delivery")],
-        [
-            InlineKeyboardButton("🗑 Очистить", callback_data="cart_clear"),
-            InlineKeyboardButton("📩 Заказать", url=TG_LINK),
-        ],
+
+    rows = []
+    for i, it in enumerate(cart):
+        rows.append([InlineKeyboardButton(
+            f"❌ {i+1}. {int(it['cny'])} ¥",
+            callback_data=f"cart_del:{i}"
+        )])
+    rows.append([InlineKeyboardButton("📦 Рассчитать доставку", callback_data="cart_delivery")])
+    rows.append([
+        InlineKeyboardButton("🗑 Очистить всё", callback_data="cart_clear"),
+        InlineKeyboardButton("📩 Заказать", url=TG_LINK),
     ])
-    await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+
+    await q.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
 
 
 async def show_delivery_type_kb(q, context, weight: float, prefix: str):
