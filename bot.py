@@ -8,6 +8,7 @@ from telegram.ext import (
 
 TOKEN   = "8664412130:AAFwHd4Vr5CpbksNSnT04M3d6i5Z-9WdIlc"
 TG_LINK = "https://t.me/PoizonAdvisor"
+MARKUP  = 1.18
 
 logging.basicConfig(level=logging.INFO)
 
@@ -162,18 +163,24 @@ async def send_price_msg(update, context, cny: float, edit_msg=None):
     country = get_country(context)
     c       = COUNTRIES[country]
     rate    = rates[c["cur"]]
-    price   = cny * rate
+    base    = cny * rate
+    fee     = base * (MARKUP - 1)
+    price   = base * MARKUP
 
     cart     = get_cart(context)
     cart_cnt = len(cart)
     cart_sum = sum(i["cny"] for i in cart)
 
     text = (
-        f"🧮 <b>{int(cny)} ¥  =  {fmt(price)} {c['sym']}</b>\n"
-        f"Курс: 1 ¥ = {rate} {c['sym']}"
+        f"🧮 <b>{int(cny)} ¥</b>\n"
+        f"─────────────────\n"
+        f"🏷  Цена товара:        {fmt(base)} {c['sym']}\n"
+        f"➕ Наценка сервиса 18%: {fmt(fee)} {c['sym']}\n"
+        f"─────────────────\n"
+        f"💰 <b>Итого: {fmt(price)} {c['sym']}</b>"
     )
     if cart_cnt:
-        text += f"\n\n🛒 В корзине: {cart_cnt} поз. · {fmt(cart_sum * rate)} {c['sym']}"
+        text += f"\n\n🛒 В корзине: {cart_cnt} поз. · {fmt(cart_sum * rate * MARKUP)} {c['sym']}"
 
     kb = InlineKeyboardMarkup([
         [
@@ -362,19 +369,21 @@ async def show_single_delivery_result(q, context, cny: float, weight: float, rat
     rate    = rates[c["cur"]]
 
     weight       = max(weight, 1.0)
-    item_price   = cny * rate
+    item_base    = cny * rate
+    item_fee     = item_base * (MARKUP - 1)
+    item_price   = item_base * MARKUP
     delivery     = rate_cny * weight * rate
     total        = item_price + delivery
 
     text = (
         f"📦 <b>Итого с доставкой</b>\n"
         f"─────────────────\n"
-        f"🏷  Товар:     {fmt(item_price)} {c['sym']}\n"
-        f"📦 Доставка:  {fmt(delivery)} {c['sym']}\n"
+        f"🏷  Товар:              {fmt(item_base)} {c['sym']}\n"
+        f"➕ Наценка сервиса 18%: {fmt(item_fee)} {c['sym']}\n"
+        f"📦 Доставка:           {fmt(delivery)} {c['sym']}\n"
         f"   {label} · {days} · {weight} кг\n"
         f"─────────────────\n"
-        f"💰 <b>Итого: {fmt(total)} {c['sym']}</b>\n\n"
-        f"<i>Без учёта комиссии байера</i>"
+        f"💰 <b>Итого: {fmt(total)} {c['sym']}</b>"
     )
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("📩 Написать @PoizonAdvisor", url=TG_LINK)],
@@ -393,20 +402,22 @@ async def show_cart_with_delivery(q, context, dtype: str, weight: float):
     option    = next((o for o in DELIVERY[country] if o[0] == dtype), DELIVERY[country][0])
     _, label, rate_cny, days = option
 
-    total_cny = sum(i["cny"] for i in cart)
-    items_sum = total_cny * rate
-    delivery  = rate_cny * max(weight, 1.0) * rate
-    total     = items_sum + delivery
+    total_cny  = sum(i["cny"] for i in cart)
+    items_base = total_cny * rate
+    items_fee  = items_base * (MARKUP - 1)
+    items_sum  = items_base * MARKUP
+    delivery   = rate_cny * max(weight, 1.0) * rate
+    total      = items_sum + delivery
 
     text = (
         f"📦 <b>Корзина с доставкой</b> ({c['flag']} {c['name']})\n"
         f"─────────────────\n"
-        f"🏷  Товары ({len(cart)} шт): {fmt(items_sum)} {c['sym']}\n"
-        f"📦 Доставка: {fmt(delivery)} {c['sym']}\n"
+        f"🏷  Товары ({len(cart)} шт):    {fmt(items_base)} {c['sym']}\n"
+        f"➕ Наценка сервиса 18%: {fmt(items_fee)} {c['sym']}\n"
+        f"📦 Доставка:           {fmt(delivery)} {c['sym']}\n"
         f"   {label} · {days} · {weight} кг\n"
         f"─────────────────\n"
-        f"💰 <b>Итого: {fmt(total)} {c['sym']}</b>\n\n"
-        f"<i>Без учёта комиссии байера</i>"
+        f"💰 <b>Итого: {fmt(total)} {c['sym']}</b>"
     )
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("📩 Написать @PoizonAdvisor", url=TG_LINK)],
