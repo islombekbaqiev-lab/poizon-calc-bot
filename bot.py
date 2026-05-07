@@ -1,6 +1,6 @@
 import logging
 import httpx
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes, PicklePersistence,
@@ -11,6 +11,12 @@ TG_LINK = "https://t.me/PoizonAdvisor"
 MARKUP  = 1.18
 
 logging.basicConfig(level=logging.INFO)
+
+MAIN_KB = ReplyKeyboardMarkup(
+    [[KeyboardButton("🛒 Корзина"), KeyboardButton("🌍 Сменить страну")],
+     [KeyboardButton("📩 Заказать")]],
+    resize_keyboard=True, input_field_placeholder="Введи цену в юанях..."
+)
 
 # ── Страны ────────────────────────────────────────────────────────────────────
 COUNTRIES = {
@@ -121,10 +127,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👋 Привет! Твоя страна: {c['flag']} <b>{c['name']}</b>\n\n"
             f"Напиши цену в юанях — я переведу в {c['sym']}.",
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🌍 Сменить страну", callback_data="change_country")],
-                [InlineKeyboardButton("🛒 Корзина",        callback_data="cart_view")],
-            ])
+            reply_markup=MAIN_KB,
         )
     else:
         await update.message.reply_text(
@@ -136,7 +139,48 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Текст: цена в юанях ───────────────────────────────────────────────────────
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw = (update.message.text or "").strip().replace(",", ".").replace("¥", "").replace(" ", "")
+    text = (update.message.text or "").strip()
+
+    # Кнопки нижней клавиатуры
+    if text == "🛒 Корзина":
+        country = get_country(context)
+        if not country:
+            await update.message.reply_text("Сначала выбери страну:", reply_markup=country_kb())
+            return
+        cart = get_cart(context)
+        if not cart:
+            await update.message.reply_text("🛒 Корзина пуста.\n\nНапиши цену в юанях чтобы добавить товар.", reply_markup=MAIN_KB)
+            return
+        rates   = await get_rates()
+        c       = COUNTRIES[country]
+        rate    = rates[c["cur"]]
+        lines   = [f"{i+1}. {int(it['cny'])} ¥ = {fmt(it['cny'] * rate * MARKUP)} {c['sym']}" for i, it in enumerate(cart)]
+        total   = sum(it["cny"] for it in cart) * rate * MARKUP
+        await update.message.reply_text(
+            f"🛒 <b>Корзина</b> ({c['flag']} {c['name']})\n"
+            f"─────────────────\n" + "\n".join(lines) +
+            f"\n─────────────────\n💰 <b>Итого: {fmt(total)} {c['sym']}</b>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📦 Рассчитать доставку", callback_data="cart_delivery")],
+                [InlineKeyboardButton("🗑 Очистить", callback_data="cart_clear"),
+                 InlineKeyboardButton("📩 Заказать", url=TG_LINK)],
+            ])
+        )
+        return
+
+    if text == "🌍 Сменить страну":
+        await update.message.reply_text("Выбери страну:", reply_markup=country_kb())
+        return
+
+    if text == "📩 Заказать":
+        await update.message.reply_text(
+            f"Напиши @PoizonAdvisor — ответим быстро 👇\nt.me/PoizonAdvisor",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📩 Открыть чат", url=TG_LINK)]])
+        )
+        return
+
+    raw = text.replace(",", ".").replace("¥", "").replace(" ", "")
     try:
         cny = float(raw)
         if not (1 <= cny <= 1_000_000):
@@ -146,7 +190,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not country:
             await update.message.reply_text("Выбери страну:", reply_markup=country_kb())
         else:
-            await update.message.reply_text("Напиши цену в юанях, например: <b>350</b>", parse_mode="HTML")
+            await update.message.reply_text("Напиши цену в юанях, например: <b>350</b>", parse_mode="HTML", reply_markup=MAIN_KB)
         return
 
     country = get_country(context)
@@ -216,13 +260,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await send_price_msg(None, context, pending, edit_msg=q.message)
         else:
-            await q.edit_message_text(
+            await q.message.reply_text(
                 f"✅ Страна: {c['flag']} <b>{c['name']}</b>\n\n"
                 f"Напиши цену в юанях — переведу в {c['sym']}.",
                 parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🛒 Корзина", callback_data="cart_view")]
-                ])
+                reply_markup=MAIN_KB,
             )
 
     elif data == "change_country":
